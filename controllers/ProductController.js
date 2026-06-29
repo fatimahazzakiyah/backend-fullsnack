@@ -61,8 +61,8 @@ class ProductController {
     const { nama, harga, stok } = req.body;
     const image = req.file ? req.file.filename : null;
 
-    // Kalau ada gambar baru, update semua termasuk gambar
     if (image) {
+      // Edit lengkap dengan ganti gambar
       db.query(
         "UPDATE products SET nama = ?, harga = ?, stok = ?, image = ? WHERE id_product = ?",
         [nama, harga, stok, image, id],
@@ -72,7 +72,7 @@ class ProductController {
         },
       );
     } else if (nama && harga) {
-      // Edit tanpa ganti gambar
+      // Edit nama, harga, stok tanpa ganti gambar
       db.query(
         "UPDATE products SET nama = ?, harga = ?, stok = ? WHERE id_product = ?",
         [nama, harga, stok, id],
@@ -82,9 +82,9 @@ class ProductController {
         },
       );
     } else {
-      // Hanya update stok
+      // Restock — tambahkan ke stok yang ada
       db.query(
-        "UPDATE products SET stok = ? WHERE id_product = ?",
+        "UPDATE products SET stok = stok + ? WHERE id_product = ?",
         [stok, id],
         (err) => {
           if (err) return res.status(500).json({ error: err.message });
