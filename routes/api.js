@@ -30,7 +30,13 @@ router.post(
   ProductController.store,
 );
 router.delete("/products/:id", verifyToken, isAdmin, ProductController.destroy);
-router.put("/products/:id", verifyToken, isAdmin, ProductController.update);
+router.put(
+  "/products/:id",
+  verifyToken,
+  isAdmin,
+  upload.single("image"),
+  ProductController.update,
+);
 
 // Cart
 router.get("/cart", verifyToken, isUser, CartController.index);
