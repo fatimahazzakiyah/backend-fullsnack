@@ -9,8 +9,10 @@ const CartController = {
         cart.id_cart,
         products.nama,
         products.harga,
+        products.stok,
         cart.quantity,
-        cart.status
+        cart.status,
+        products.id_product
       FROM cart
       INNER JOIN products
         ON cart.product_id = products.id_product
@@ -45,6 +47,16 @@ const CartController = {
           return res.status(404).json({ message: "Produk tidak ditemukan." });
         }
 
+        const product = results[0];
+
+        if (product.stok < jumlahItem) {
+          return res
+            .status(400)
+            .json({
+              message: `Stok tidak cukup. Stok tersedia: ${product.stok}`,
+            });
+        }
+
         db.query(
           "SELECT * FROM cart WHERE product_id = ? AND id_user = ? AND status = 'aktif'",
           [id_product, id_user],
@@ -52,6 +64,14 @@ const CartController = {
             if (err) return res.status(500).json({ error: err.message });
 
             if (cartItems.length > 0) {
+              const newQty = cartItems[0].quantity + jumlahItem;
+              if (newQty > product.stok) {
+                return res
+                  .status(400)
+                  .json({
+                    message: `Stok tidak cukup. Stok tersedia: ${product.stok}`,
+                  });
+              }
               db.query(
                 "UPDATE cart SET quantity = quantity + ? WHERE product_id = ? AND id_user = ? AND status = 'aktif'",
                 [jumlahItem, id_product, id_user],
@@ -98,20 +118,63 @@ const CartController = {
     const id_user = req.user.id;
     const { total_harga, alamat } = req.body;
 
-    const queryOrder =
-      "INSERT INTO orders (id_user, total_harga, alamat, status) VALUES (?, ?, ?, 'selesai')";
+    // Ambil semua item keranjang user
+    const getCartQuery = `
+      SELECT cart.product_id, cart.quantity, products.stok, products.nama
+      FROM cart
+      INNER JOIN products ON cart.product_id = products.id_product
+      WHERE cart.id_user = ? AND cart.status = 'aktif'
+    `;
 
-    db.query(queryOrder, [id_user, total_harga, alamat], (err) => {
+    db.query(getCartQuery, [id_user], (err, cartItems) => {
       if (err) return res.status(500).json({ error: err.message });
 
-      db.query(
-        "UPDATE cart SET status = 'checkout' WHERE id_user = ? AND status = 'aktif'",
-        [id_user],
-        (err) => {
-          if (err) return res.status(500).json({ error: err.message });
-          res.status(200).json({ message: "Checkout berhasil." });
-        },
-      );
+      // Cek apakah stok cukup untuk semua item
+      for (const item of cartItems) {
+        if (item.quantity > item.stok) {
+          return res.status(400).json({
+            message: `Stok ${item.nama} tidak cukup. Stok tersedia: ${item.stok}`,
+          });
+        }
+      }
+
+      // Buat order
+      const queryOrder =
+        "INSERT INTO orders (id_user, total_harga, alamat, status) VALUES (?, ?, ?, 'selesai')";
+
+      db.query(queryOrder, [id_user, total_harga, alamat], (err) => {
+        if (err) return res.status(500).json({ error: err.message });
+
+        // Kurangi stok setiap produk
+        const updateStokPromises = cartItems.map((item) => {
+          return new Promise((resolve, reject) => {
+            db.query(
+              "UPDATE products SET stok = stok - ? WHERE id_product = ?",
+              [item.quantity, item.product_id],
+              (err) => {
+                if (err) reject(err);
+                else resolve();
+              },
+            );
+          });
+        });
+
+        Promise.all(updateStokPromises)
+          .then(() => {
+            // Update status cart jadi checkout
+            db.query(
+              "UPDATE cart SET status = 'checkout' WHERE id_user = ? AND status = 'aktif'",
+              [id_user],
+              (err) => {
+                if (err) return res.status(500).json({ error: err.message });
+                res.status(200).json({ message: "Checkout berhasil." });
+              },
+            );
+          })
+          .catch((err) => {
+            res.status(500).json({ error: err.message });
+          });
+      });
     });
   },
 };
